@@ -231,10 +231,28 @@ pub fn connect(
         }
     }
 
+    let mut telemetry = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("endpoint-telemetry.jsonl")
+        .expect("failed to open telemetry file");
+
+    let initial_local_addr = socket.local_addr().unwrap();
+
+    writeln!(
+        telemetry,
+        r#"{{"event":"connection_started","local":"{}","peer":"{}"}}"#,
+        initial_local_addr,
+        peer_addr
+    )
+    .unwrap();
+
+    telemetry.flush().unwrap();
+
     info!(
         "connecting to {:} from {:} with scid {:?}",
         peer_addr,
-        socket.local_addr().unwrap(),
+        initial_local_addr,
         scid,
     );
 
@@ -441,7 +459,29 @@ pub fn connect(
 
                 quiche::PathEvent::Validated(local_addr, peer_addr) => {
                     info!("Path ({local_addr}, {peer_addr}) is now validated");
+		                        
+		    writeln!(
+			telemetry,
+        		r#"{{"event":"path_validated","local":"{}","peer":"{}"}}"#,
+        		local_addr,
+        		peer_addr
+		    )
+		    .unwrap();
+
+    		    telemetry.flush().unwrap();
+
                     conn.migrate(local_addr, peer_addr).unwrap();
+		    
+		    writeln!(
+        		telemetry,
+        		r#"{{"event":"migration_requested","local":"{}","peer":"{}"}}"#,
+        		local_addr,
+        		peer_addr
+    		    )
+    		    .unwrap();
+
+    		    telemetry.flush().unwrap();
+
                     migrated = true;
                 },
 
@@ -499,7 +539,16 @@ pub fn connect(
             let additional_local_addr =
                 migrate_socket.as_ref().unwrap().local_addr().unwrap();
             conn.probe_path(additional_local_addr, peer_addr).unwrap();
+	    
+	    writeln!(
+    		telemetry,
+    		r#"{{"event":"path_probe_started","local":"{}","peer":"{}"}}"#,
+    		additional_local_addr,
+    		peer_addr
+	    )
+	    .unwrap();
 
+	    telemetry.flush().unwrap();
             new_path_probed = true;
         }
 
