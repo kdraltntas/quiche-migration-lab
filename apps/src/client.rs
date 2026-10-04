@@ -72,7 +72,9 @@ pub fn connect(
     // server address. This is needed on macOS and BSD variants that don't
     // support binding to IN6ADDR_ANY for both v4 and v6.
     let bind_addr = match peer_addr {
-        std::net::SocketAddr::V4(_) => format!("0.0.0.0:{}", args.source_port),
+        std::net::SocketAddr::V4(_) => {
+            format!("10.10.10.10:{}", args.source_port)
+        },
         std::net::SocketAddr::V6(_) => format!("[::]:{}", args.source_port),
     };
 
@@ -85,8 +87,15 @@ pub fn connect(
         .unwrap();
 
     let migrate_socket = if args.perform_migration {
+        let migrate_bind_addr = match peer_addr {
+            std::net::SocketAddr::V4(_) => "10.10.20.10:0",
+            std::net::SocketAddr::V6(_) => "[::]:0",
+        };
+
         let mut socket =
-            mio::net::UdpSocket::bind(bind_addr.parse().unwrap()).unwrap();
+            mio::net::UdpSocket::bind(migrate_bind_addr.parse().unwrap())
+                .unwrap();
+
         poll.registry()
             .register(&mut socket, mio::Token(1), mio::Interest::READABLE)
             .unwrap();
@@ -365,9 +374,9 @@ pub fn connect(
 
         // Create a new application protocol session once the QUIC connection is
         // established.
-        if (conn.is_established() || conn.is_in_early_data()) &&
-            (!args.perform_migration || migrated) &&
-            !app_proto_selected
+        if (conn.is_established() || conn.is_in_early_data())
+            && (!args.perform_migration || migrated)
+            && !app_proto_selected
         {
             // At this stage the ALPN negotiation succeeded and selected a
             // single application protocol name. We'll use this to construct
@@ -458,8 +467,9 @@ pub fn connect(
 
                 quiche::PathEvent::PeerMigrated(..) => unreachable!(),
 
-                quiche::PathEvent::PmtuUpdated { local, peer, pmtu } =>
-                    info!("Path ({local}, {peer}) validated PMTU {pmtu}"),
+                quiche::PathEvent::PmtuUpdated { local, peer, pmtu } => {
+                    info!("Path ({local}, {peer}) validated PMTU {pmtu}")
+                },
 
                 _ => (),
             }
@@ -481,10 +491,10 @@ pub fn connect(
             scid_sent = true;
         }
 
-        if args.perform_migration &&
-            !new_path_probed &&
-            scid_sent &&
-            conn.available_dcids() > 0
+        if args.perform_migration
+            && !new_path_probed
+            && scid_sent
+            && conn.available_dcids() > 0
         {
             let additional_local_addr =
                 migrate_socket.as_ref().unwrap().local_addr().unwrap();
